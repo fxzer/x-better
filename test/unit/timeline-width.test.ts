@@ -141,7 +141,7 @@ describe('changeTimelineWidth', () => {
   })
 })
 
-describe('changeSidebarColumn', () => {
+describe('changeSidebarColumn & changeSidebarElements', () => {
   let dom: JSDOM
 
   beforeEach(() => {
@@ -168,21 +168,91 @@ describe('changeSidebarColumn', () => {
     dom.window.close()
   })
 
-  it('injects auto-centering styles when right sidebar is hidden', async () => {
+  it('changeSidebarColumn removes full hide styles so search and scheduled panorama remain accessible', async () => {
     const { changeSidebarColumn } = await import('../../content-scripts/options/interface')
-    changeSidebarColumn('on')
+    const style = document.createElement('style')
+    style.id = 'xf-style-hideSidebarColumn'
+    document.head.appendChild(style)
 
-    const css = document.getElementById('xf-style-hideSidebarColumn')!.textContent!
-    expect(css).toContain('[data-testid="sidebarColumn"] { display: none !important; }')
-    expect(css).toContain('header[role="banner"] > div')
-    expect(css).toContain('margin-left: 0px !important;')
-    expect(css).toContain('main[role="main"] > div:has([data-testid="primaryColumn"])')
-    expect(css).toContain('width: fit-content !important;')
-    expect(css).toContain('[data-testid="primaryColumn"]')
-    expect(css).toContain('margin-right: 0px !important;')
+    changeSidebarColumn('on')
+    expect(document.getElementById('xf-style-hideSidebarColumn')).toBeNull()
 
     changeSidebarColumn('off')
     expect(document.getElementById('xf-style-hideSidebarColumn')).toBeNull()
+  })
+
+  it('changeSidebarElements granularly injects and removes hide styles for live, trends, and whoToFollow', async () => {
+    const { changeSidebarElements } = await import('../../content-scripts/options/interface')
+
+    // 默认全开：不注入隐藏样式（但底部条款始终彻底隐藏）
+    changeSidebarElements('live,trends,whoToFollow')
+    expect(document.getElementById('xf-style-hideSidebarAllThree')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarFooter')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarLive')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarTrends')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarWhoToFollow')).toBeNull()
+
+    // 仅展示直播（隐藏新鲜事和推荐关注，移除全隐藏样式）
+    changeSidebarElements('live')
+    expect(document.getElementById('xf-style-hideSidebarAllThree')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarFooter')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarLive')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarTrends')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarWhoToFollow')).not.toBeNull()
+
+    // 全隐藏（全部未勾选：注入全隐藏样式彻底无痕）
+    changeSidebarElements('')
+    expect(document.getElementById('xf-style-hideSidebarAllThree')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarFooter')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarLive')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarTrends')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarWhoToFollow')).not.toBeNull()
+
+    // 重新全开
+    changeSidebarElements('live,trends,whoToFollow')
+    expect(document.getElementById('xf-style-hideSidebarAllThree')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarFooter')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarLive')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarTrends')).toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarWhoToFollow')).toBeNull()
+  })
+
+  it('staticFeatures.timeline triggers changeSidebarElements and applies hide rules', async () => {
+    const { staticFeatures } = await import('../../content-scripts/features/static')
+    const { KeySidebarElements, KeyTimelineWidth, KeyNavigationButtonsLabels, KeySidebarColumn, KeyTweetButton, KeyHighlightNonFollowers, KeyArticleToc, KeyScheduledPanorama } = await import('../../storage-keys')
+
+    staticFeatures.timeline({
+      [KeyTimelineWidth]: 600,
+      [KeyNavigationButtonsLabels]: 'always',
+      [KeySidebarColumn]: 'off',
+      [KeySidebarElements]: '',
+      [KeyTweetButton]: 'on',
+      [KeyHighlightNonFollowers]: 'off',
+      [KeyArticleToc]: 'off',
+      [KeyScheduledPanorama]: 'off',
+    } as any)
+
+    expect(document.getElementById('xf-style-hideSidebarAllThree')).not.toBeNull()
+    expect(document.getElementById('xf-style-hideSidebarLive')).not.toBeNull()
+  })
+
+  it('hideSidebarAllThree CSS 包含 display: none !important 并且严格排除搜索表单、输入框、下拉框与建议浮层', async () => {
+    const { changeSidebarElements } = await import('../../content-scripts/options/interface')
+
+    changeSidebarElements('')
+    const allThreeStyle = document.getElementById('xf-style-hideSidebarAllThree')
+    expect(allThreeStyle).not.toBeNull()
+    const css = allThreeStyle!.textContent!
+
+    expect(css).toContain('display: none !important;')
+    expect(css).toContain(':not(:has(form))')
+    expect(css).toContain(':not(:has(input))')
+    expect(css).toContain(':not([role="listbox"])')
+    expect(css).toContain(':not(:has([role="listbox"]))')
+    expect(css).toContain(':not([data-testid*="typeahead"])')
+    expect(css).toContain(':not(:has([data-testid*="typeahead"]))')
+    expect(css).toContain(':not(.xf-sidebar-scheduled-panorama)')
+    expect(css).toContain(':not(:has(.xf-sidebar-scheduled-panorama))')
   })
 })
 

@@ -6,6 +6,7 @@ import {
   KeyNavigationButtonsLabels, KeyNotificationsButton,
   KeyCreatorStudioButton, KeyMoreMenuButton, KeyProfileButton,
   KeySidebarColumn,
+  KeySidebarElements,
   KeyTimelineWidth,
   KeyTopicsButton, KeyTweetButton,
   KeyVerifiedOrgsButton, KeyXPremiumButton,
@@ -17,10 +18,12 @@ import {
   KeyMediaDownloadEnabled,
 } from '../../storage-keys'
 import { setBookmarkCountEnabled } from './bookmark-counter'
+import { attachSidebarScheduledPanorama } from '../options/scheduled-time'
 import { injectMediaHoverButtons, removeMediaHoverButtons } from './tweet-media-download'
 import {
   changeTweetButton,
   changeSidebarColumn,
+  changeSidebarElements,
   changeHighlightNonFollowers,
   changeArticleToc,
   changeScheduledPanorama,
@@ -49,9 +52,11 @@ export const staticFeatures: Record<string, (data: FeatureData) => void> = {
     changeTimelineWidth(data[KeyTimelineWidth], data[KeyNavigationButtonsLabels], data[KeySidebarColumn])
     changeTweetButton(data[KeyTweetButton], data[KeyNavigationButtonsLabels])
     changeSidebarColumn(data[KeySidebarColumn])
+    changeSidebarElements(data[KeySidebarElements])
     changeHighlightNonFollowers(data[KeyHighlightNonFollowers])
     changeArticleToc(data[KeyArticleToc])
     changeScheduledPanorama(data[KeyScheduledPanorama])
+    void attachSidebarScheduledPanorama()
     changeJumpToComments(data[KeyJumpToComments])
     setBookmarkCountEnabled(data[KeyBookmarkCount] !== 'off')
     if (data[KeyMediaDownloadEnabled] === 'off') {
@@ -92,6 +97,7 @@ const TIMELINE_KEYS = new Set<SettingKey>([
   KeyNavigationButtonsLabels,
   KeyTweetButton,
   KeySidebarColumn,
+  KeySidebarElements,
   KeyHighlightNonFollowers,
   KeyArticleToc,
   KeyScheduledPanorama,

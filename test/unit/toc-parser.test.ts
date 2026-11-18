@@ -341,6 +341,56 @@ describe('toc-parser: extractHeadingsFromArticle on simulated DOM', () => {
       { level: 2, text: '第三个我非常常用的功能，多语言翻译' },
     ])
   })
+
+  it('should extract headings correctly in Article Preview page (/preview) even when embedded tweets exist', () => {
+    // 模拟长文发布预览页面（/compose/articles/edit/:id/preview）：
+    // 页面内包含侧边栏/引用的普通推文卡片 article[data-testid="tweet"]，
+    // 以及长文容器 article[data-testid="twitterArticleReadView"]，长文内部也内嵌了推文。
+    const html = `
+      <div>
+        <!-- 侧边栏或其他位置的普通短推文 -->
+        <article data-testid="tweet">
+          <div data-testid="tweetText">这是一条侧边栏或外层的普通推文</div>
+        </article>
+
+        <!-- 长文预览核心容器 -->
+        <article data-testid="twitterArticleReadView">
+          <div data-testid="twitter-article-title">单帖能发 20 张图，推友都玩出了什么花样？</div>
+          <div data-testid="twitterArticleRichTextView">
+            <h1 class="longform-header-one" data-block="true">一、互动无限延伸彩蛋流</h1>
+            <p class="longform-unstyled" data-block="true">第一段正文描述...</p>
+            
+            <!-- 长文内嵌推文卡片 -->
+            <article data-testid="tweet">
+              <div data-testid="tweetText">
+                <span># 内嵌推文里的文字不应该作为长文目录</span>
+              </div>
+            </article>
+
+            <h1 class="longform-header-one" data-block="true">二、长图切片与全景拼图</h1>
+            <h2 class="longform-header-two" data-block="true">1. 阿波罗 17 号登月全景切片</h2>
+            <h2 class="longform-header-two" data-block="true">2. 横向宽幅裸眼 3D 栅格切片</h2>
+
+            <h1 class="longform-header-one" data-block="true">三、纵向阵列与实体展台</h1>
+            <h2 class="longform-header-two" data-block="true">1. 复古 CD 安装光盘货架</h2>
+          </div>
+        </article>
+      </div>
+    `
+    const dom = new JSDOM(html)
+    const headings = extractHeadingsFromArticle(dom.window.document)
+
+    expect(headings.length).toBe(7)
+    expect(headings.map((h) => ({ level: h.level, text: h.text }))).toEqual([
+      { level: 1, text: '单帖能发 20 张图，推友都玩出了什么花样？' },
+      { level: 1, text: '一、互动无限延伸彩蛋流' },
+      { level: 1, text: '二、长图切片与全景拼图' },
+      { level: 2, text: '1. 阿波罗 17 号登月全景切片' },
+      { level: 2, text: '2. 横向宽幅裸眼 3D 栅格切片' },
+      { level: 1, text: '三、纵向阵列与实体展台' },
+      { level: 2, text: '1. 复古 CD 安装光盘货架' },
+    ])
+  })
 })
 
 

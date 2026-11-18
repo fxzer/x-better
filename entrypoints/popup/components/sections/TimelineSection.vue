@@ -1,13 +1,25 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { CheckboxRoot, CheckboxIndicator } from 'reka-ui'
 import {
   KeyTweetButton,
   KeyNavigationButtonsLabels,
-  KeySidebarColumn,
+  KeySidebarElements,
   KeyHighlightNonFollowers,
   KeyArticleToc,
   KeyScheduledPanorama,
   KeyJumpToComments,
+  KeyComposerMediaGrid,
+  KeyMediaCarouselSwipe,
+  KeySearchFilterBar,
+  KeySearchDefaultLatest,
 } from '../../../../storage-keys'
+import {
+  parseSidebarElements,
+  serializeSidebarElements,
+  type SidebarElementKey,
+} from '../../../../shared/settings'
+import { getStorage, setStorage } from '../../../../content-scripts/utilities/storage'
 import { useNavIcons } from '../../composables/useNavIcons'
 import TimelineWidthSlider from '../controls/TimelineWidthSlider.vue'
 import ControlsWrapper from '../ui/ControlsWrapper.vue'
@@ -25,14 +37,6 @@ const displayControls = [
     options: [
       { value: 'on', label: '显示' },
       { value: 'off', label: '隐藏' },
-    ],
-  },
-  {
-    label: '右侧边栏',
-    key: KeySidebarColumn,
-    options: [
-      { value: 'off', label: '显示' },
-      { value: 'on', label: '隐藏' },
     ],
   },
   {
@@ -67,7 +71,62 @@ const displayControls = [
       { value: 'off', label: '隐藏' },
     ],
   },
+  {
+    label: '发帖多图拖拽排序',
+    key: KeyComposerMediaGrid,
+    options: [
+      { value: 'on', label: '开启' },
+      { value: 'off', label: '关闭' },
+    ],
+  },
+  {
+    label: '多图横滑浏览',
+    key: KeyMediaCarouselSwipe,
+    options: [
+      { value: 'on', label: '开启' },
+      { value: 'off', label: '关闭' },
+    ],
+  },
+  {
+    label: '搜索结果筛选条',
+    key: KeySearchFilterBar,
+    options: [
+      { value: 'on', label: '开启' },
+      { value: 'off', label: '关闭' },
+    ],
+  },
+  {
+    label: '搜索默认「最新」',
+    key: KeySearchDefaultLatest,
+    options: [
+      { value: 'on', label: '开启' },
+      { value: 'off', label: '关闭' },
+    ],
+  },
 ]
+
+const sidebarElementOptions: { key: SidebarElementKey; label: string }[] = [
+  { key: 'live', label: 'X直播' },
+  { key: 'trends', label: 'X新鲜事' },
+  { key: 'whoToFollow', label: '推荐关注' },
+]
+
+const sidebarElements = ref<Record<SidebarElementKey, boolean>>({
+  live: false,
+  trends: false,
+  whoToFollow: false,
+})
+
+onMounted(async () => {
+  const stored = await getStorage(KeySidebarElements)
+  sidebarElements.value = parseSidebarElements(stored)
+})
+
+const toggleSidebarElement = async (key: SidebarElementKey, checked: boolean) => {
+  sidebarElements.value[key] = checked
+  const serialized = serializeSidebarElements(sidebarElements.value)
+  await setStorage({ [KeySidebarElements]: serialized })
+}
 </script>
 
 <template>
@@ -84,6 +143,37 @@ const displayControls = [
     >
      <span class="text-[12px] font-semibold text-color-text">{{ item.label }}</span>
      <ToggleGroupControl :storage-key="item.key" :options="item.options" />
+    </div>
+
+    <!-- 侧边栏元素：X直播 / X新鲜事 / 推荐关注 -->
+    <div class="flex items-center justify-between gap-3 border-t border-border/60 pt-2.5">
+      <div class="min-w-0">
+        <p class="text-[12px] font-semibold text-color-text whitespace-nowrap">侧边栏元素</p>
+        <p class="text-[10px] text-secondary-text mt-0.5 whitespace-nowrap">勾选要展示的模块</p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <label
+          v-for="opt in sidebarElementOptions"
+          :key="opt.key"
+          class="flex items-center gap-1 cursor-pointer select-none"
+        >
+          <CheckboxRoot
+            :model-value="sidebarElements[opt.key]"
+            @update:model-value="(v) => toggleSidebarElement(opt.key, !!v)"
+            class="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors cursor-pointer outline-none"
+            :class="sidebarElements[opt.key] ? 'bg-accent border-accent' : 'bg-white border-secondary-text/40'"
+          >
+            <CheckboxIndicator class="flex items-center justify-center text-white">
+              <svg viewBox="0 0 12 12" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 6.5 4.5 9 10 3.5" />
+              </svg>
+            </CheckboxIndicator>
+          </CheckboxRoot>
+          <span class="text-xs whitespace-nowrap" :class="sidebarElements[opt.key] ? 'text-color-text' : 'text-secondary-text'">
+            {{ opt.label }}
+          </span>
+        </label>
+      </div>
     </div>
    </div>
   </ControlsWrapper>

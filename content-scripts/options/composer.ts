@@ -7,7 +7,47 @@ import { getPrecomposeUrl, isComposeUrl } from './precompose'
 const savedRangeMap = new WeakMap<HTMLElement, Range>()
 
 // Only inject into modals that look like a compose modal
+export function isUnsentPostsPageOrModal(modal?: Element | null): boolean {
+  if (
+    typeof window !== 'undefined' &&
+    window.location &&
+    window.location.pathname.includes('/compose/post/unsent')
+  ) {
+    return true
+  }
+  if (!modal) return false
+
+  const hasEditableArea = Boolean(
+    modal.querySelector('.DraftEditor-editorContainer [contenteditable="true"]') ||
+    modal.querySelector('[data-testid^="tweetTextarea"][contenteditable="true"]') ||
+    modal.querySelector('[contenteditable="true"]')
+  )
+  if (hasEditableArea) {
+    return false
+  }
+
+  if (
+    modal.querySelector('[data-testid="unsentTweet"]') ||
+    modal.querySelector('a[href*="/compose/post/unsent"]')
+  ) {
+    return true
+  }
+
+  const headingEls = Array.from(modal.querySelectorAll('h1, h2, [role="heading"]'))
+  for (const h of headingEls) {
+    const txt = h.textContent?.trim() || ''
+    if (/^(草稿|未发送的帖子|未发送的推文|预排期|Drafts|Unsent posts|Scheduled)/i.test(txt)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function isComposeModal(modal: Element): boolean {
+  if (isUnsentPostsPageOrModal(modal)) {
+    return false
+  }
   return !!(
     modal.querySelector('.DraftEditor-editorContainer') ||
     modal.querySelector('[data-testid="ScrollSnap-List"]') ||

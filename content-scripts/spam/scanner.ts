@@ -1,9 +1,9 @@
 import { evaluateSpam } from '../../shared/spam-rules'
 import { recordIntercept } from '../../shared/spam-logger'
-import { extractTweetInfo } from '../../shared/parse-tweet'
+import { extractTweetInfo, extractTweetHandle } from '../../shared/parse-tweet'
 import type { SpamEvaluation, SpamRuleId } from '../../shared/spam-types'
 import { injectKeywordButton } from './keyword-picker'
-import { applyAllow, applyHideDirect, resetArticleSpamState } from './article-state'
+import { applyAllow, applyHideDirect, resetArticleSpamState, getArticleBinding, setArticleBinding } from './article-state'
 import { getSpamConfig, invalidateSpamConfigCache } from './config'
 import {
   cleanupDebugBars,
@@ -28,23 +28,33 @@ const SPAM_FP_ATTR = 'data-xf-spam-fp'
 // 黑/白名单、阈值、启用规则的变更都走 invalidateSpamConfig，从而触发重算。
 let spamConfigVersion = 0
 
-async function processArticle(article: HTMLElement, config: SpamConfig) {
+async function processArticle(
+  article: HTMLElement,
+  config: SpamConfig,
+  precomputedHandle?: string,
+) {
   // 轻量级预指纹短路（非 debug）：
   // 在昂贵的 extractTweetInfo（TreeWalker 遍历 DOM）之前，用 textContent 长度 +
   // 首尾 16 字符 + 配置版本快速判断推文是否已变更。
   // 注意：使用 textContent 而非 innerText，因为 textContent 不会触发强制回流（reflow）。
   // 指纹匹配 → 跳过整条处理链路（含 TreeWalk + evaluateSpam），节省大量 CPU。
+  let currentFp = ''
   if (!config.debug) {
     const rawText = article.textContent || ''
-    const preFp = `${rawText.length}:${rawText.slice(0, 16)}:${rawText.slice(-16)}:v${spamConfigVersion}`
-    if (article.getAttribute(PROCESSED_ATTR) === '1' && article.getAttribute(SPAM_FP_ATTR) === preFp) {
+    currentFp = `${rawText.length}:${rawText.slice(0, 16)}:${rawText.slice(-16)}:v${spamConfigVersion}`
+    const previousBinding = getArticleBinding(article)
+    if (article.getAttribute(PROCESSED_ATTR) === '1' && article.getAttribute(SPAM_FP_ATTR) === currentFp && previousBinding?.fp === currentFp) {
       return
     }
-    article.setAttribute(SPAM_FP_ATTR, preFp)
+    // 虚拟列表节点复用自愈：若 DOM 内容指纹变化且上一条推文残留了 hidden 状态，立即自愈复位
+    if (previousBinding && previousBinding.fp !== currentFp && article.getAttribute(STATE_ATTR) === 'hidden') {
+      applyAllow(article)
+    }
+    article.setAttribute(SPAM_FP_ATTR, currentFp)
   }
 
   // X 推文分阶段渲染；每轮重评估能避免初次拿到不完整 text/name。
-  const info = extractTweetInfo(document, article)
+  const info = extractTweetInfo(document, article, precomputedHandle)
   if (!info) return
 
   if (info.authorHandle && config.blacklist.has(info.authorHandle.toLowerCase())) {
@@ -74,6 +84,7 @@ async function processArticle(article: HTMLElement, config: SpamConfig) {
         })
       }
       applyHideDirect(article)
+      setArticleBinding(article, { fp: currentFp, state: 'hidden' })
     }
     return
   }
@@ -81,6 +92,7 @@ async function processArticle(article: HTMLElement, config: SpamConfig) {
   if (info.authorHandle && config.whitelist.has(info.authorHandle.toLowerCase())) {
     if (article.getAttribute(STATE_ATTR)) applyAllow(article)
     article.setAttribute(PROCESSED_ATTR, '1')
+    setArticleBinding(article, { fp: currentFp, state: 'allowed' })
     return
   }
 
@@ -124,7 +136,10 @@ async function processArticle(article: HTMLElement, config: SpamConfig) {
       action: 'filter',
     })
     applyHideDirect(article)
+    setArticleBinding(article, { fp: currentFp, state: 'hidden' })
     ensureBar(article, evaluation, config)
+  } else {
+    setArticleBinding(article, { fp: currentFp, state: 'allowed' })
   }
 }
 
@@ -157,12 +172,16 @@ async function scheduleScan() {
   }
 }
 
-export function isTweetDetailPage(pathname: string = window.location.pathname): { isDetailPage: boolean; statusId?: string } {
+export function isTweetDetailPage(pathname: string = window.location.pathname): { isDetailPage: boolean; statusId?: string; opHandle?: string } {
   if (/\/(analytics|retweets|likes|quotes)$/.test(pathname)) {
     return { isDetailPage: false }
   }
-  const match = pathname.match(/\/status\/(\d+)/)
-  return { isDetailPage: Boolean(match), statusId: match?.[1] }
+  const match = pathname.match(/\/([A-Za-z0-9_]{1,15})\/status\/(\d+)/)
+  if (match) {
+    return { isDetailPage: true, opHandle: match[1], statusId: match[2] }
+  }
+  const fallback = pathname.match(/\/status\/(\d+)/)
+  return { isDetailPage: Boolean(fallback), statusId: fallback?.[1] }
 }
 
 export async function runScan(force = false) {
@@ -178,7 +197,7 @@ export async function runScan(force = false) {
     return
   }
 
-  const { isDetailPage, statusId } = isTweetDetailPage()
+  const { isDetailPage, statusId, opHandle } = isTweetDetailPage()
 
   // 限制评分范围：仅推文详情页下的评论参与评分体系
   // 非详情页（如 /home 首页时间线）完全不评分、不展示调试条，并清理可能残留的调试条与隐藏状态
@@ -213,6 +232,9 @@ export async function runScan(force = false) {
     mainTweetIndex = 0
   }
 
+  const mainTweet = articles[mainTweetIndex]
+  const mainAuthorHandle = (mainTweet ? extractTweetHandle(mainTweet) : null) || opHandle
+
   const debugConfigKey = config.debug ? getDebugConfigKey(config) : ''
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i]
@@ -221,6 +243,21 @@ export async function runScan(force = false) {
 
     // 主贴（及主贴前置上下文）：不进入评分体系、不展示调试条
     if (i <= mainTweetIndex) {
+      removeDebugBar(article)
+      if (article.getAttribute(STATE_ATTR) === 'hidden') applyAllow(article)
+      article.removeAttribute(PROCESSED_ATTR)
+      article.removeAttribute(SCORE_ATTR)
+      injectKeywordButton(article)
+      continue
+    }
+
+    // 若评论作者为推文主贴原作者（OP / 楼主），视为作者后续 Thread 补充、提示词正文或作者互动，严格跳过评分与隐藏
+    // 仅轻量提取 handle 做比较：此处若用 extractTweetInfo 会先于 processArticle 的
+    // 预指纹短路执行整条 TreeWalker 解析，让短路优化失效且造成双重解析。
+    const authorHandle = extractTweetHandle(article)
+    const normalizedAuthor = authorHandle.toLowerCase() || null
+    const normalizedOp = mainAuthorHandle?.toLowerCase()
+    if (normalizedAuthor && normalizedOp && normalizedAuthor === normalizedOp) {
       removeDebugBar(article)
       if (article.getAttribute(STATE_ATTR) === 'hidden') applyAllow(article)
       article.removeAttribute(PROCESSED_ATTR)
@@ -242,12 +279,15 @@ export async function runScan(force = false) {
       }
     }
 
-    void processArticle(article, config)
+    void processArticle(article, config, authorHandle)
     injectKeywordButton(article)
   }
 }
 
 export function cleanupOrphanReplacements() {
+  // 非替换模式（applyHideDirect）下页面不会有替换节点，直接跳过两轮全树查询。
+  if (!document.querySelector('[data-xf-spam-hidden-replacement]')) return
+
   document.querySelectorAll<HTMLElement>('[data-xf-spam-hidden-replacement]').forEach((rep) => {
     let next = rep.nextElementSibling
     while (next && next.matches?.('[data-xf-spam-hidden-replacement]')) {

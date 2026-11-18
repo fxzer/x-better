@@ -239,19 +239,31 @@ describe('segmentText', () => {
     expect(result.some((s) => s.text === '处理' && s.useful)).toBe(true)
   })
 
-  it('marks pure emoji segments as not useful', () => {
+  it('marks emoji segments as useful so users can add them to marketing keywords', () => {
     const result = segmentText('评论 🌸😂🌹 结尾')
     const emojiSeg = result.find((s) => s.text === '🌸😂🌹')
     if (emojiSeg) {
-      // Intl.Segmenter 可能把连续 emoji 拆成单个或整体，两种情况下都应标记为 not useful
-      expect(emojiSeg.useful).toBe(false)
+      expect(emojiSeg.useful).toBe(true)
     } else {
-      // 如果 Intl.Segmenter 把 emoji 拆成了单个，检查每个单个
       const singleEmojis = result.filter((s) => s.text === '🌸' || s.text === '😂' || s.text === '🌹')
+      expect(singleEmojis.length).toBeGreaterThan(0)
       for (const seg of singleEmojis) {
-        expect(seg.useful).toBe(false)
+        expect(seg.useful).toBe(true)
       }
     }
+  })
+
+  it('correctly segments and marks mixed words and emojis as useful (user reported scenario)', () => {
+    const result = segmentText('charisma💖🎇tenacious')
+    const texts = result.map((s) => s.text)
+    expect(texts).toContain('charisma')
+    expect(texts).toContain('💖')
+    expect(texts).toContain('🎇')
+    expect(texts).toContain('tenacious')
+    // 所有的 emoji 和文本词汇都应该是 useful，支持点击添加到营销词库
+    result.forEach((s) => {
+      expect(s.useful).toBe(true)
+    })
   })
 
   it('marks pure punctuation as not useful', () => {

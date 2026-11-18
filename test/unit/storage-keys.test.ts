@@ -36,7 +36,8 @@ describe('storage defaults', () => {
         key !== 'spamWhitelist' &&
         key !== 'spamBlacklist' &&
         key !== 'spamRulesEnabled' &&
-        key !== 'statRatioTargetHandle'
+        key !== 'statRatioTargetHandle' &&
+        key !== 'sidebarElements'
       ) {
         expect(['on', 'off']).toContain(value)
       } else {

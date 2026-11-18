@@ -2,8 +2,9 @@ import selectors from '../selectors'
 import addStyles, { removeStyles } from '../utilities/addStyles'
 import { updateArticleToc, destroyArticleToc } from '../features/article-toc'
 import { updateJumpToComments, destroyJumpToComments } from '../features/jump-to-comments'
-import { addScheduledRelativeTimes, removeScheduledPanorama } from './scheduled-time'
+import { addScheduledRelativeTimes, removeScheduledPanorama, attachSidebarScheduledPanorama } from './scheduled-time'
 import { ensureCustomTweetButton } from './navigation'
+import { parseSidebarElements } from '../../shared/settings'
 
 export const changeTweetButton = (
   state: string | number | boolean,
@@ -38,35 +39,106 @@ export const changeTweetButton = (
   }
 }
 
-export const changeSidebarColumn = (state: string | number | boolean) => {
-  if (state === 'on' || state === 'hide') {
+export const changeSidebarColumn = (_state?: string | number | boolean) => {
+  // 侧边栏不再全局隐藏（保留搜索框与排期全景），移除全栏隐藏样式
+  removeStyles('hideSidebarColumn')
+  void attachSidebarScheduledPanorama()
+}
+
+export const HIDE_SIDEBAR_FOOTER_CSS = `[data-testid="sidebarColumn"] div.r-1867qdf:has(nav[role="navigation"]),
+  [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(nav[role="navigation"]),
+  [data-testid="sidebarColumn"] div:has(> nav[aria-label*="页脚"]),
+  [data-testid="sidebarColumn"] div:has(> nav[aria-label*="Footer"]),
+  [data-testid="sidebarColumn"] nav[aria-label*="页脚"],
+  [data-testid="sidebarColumn"] nav[aria-label*="Footer"],
+  [data-testid="sidebarColumn"] nav[role="navigation"]:has(a[href*="/tos"]),
+  [data-testid="sidebarColumn"] nav[role="navigation"]:has(a[href*="/privacy"]) {
+    display: none !important;
+  }`
+
+export const changeSidebarElements = (elements: unknown) => {
+  const parsed = parseSidebarElements(elements)
+
+  // 默认无条件彻底隐藏侧边栏底部条款与版权信息
+  addStyles('hideSidebarFooter', HIDE_SIDEBAR_FOOTER_CSS)
+
+  // 当 3 个元素全部未勾选时（默认纯净模式）：
+  // 直接隐藏除搜索栏、搜索筛选与排期全景外的全部卡片容器及加载占位 Spinner，实现 0 毫秒无痕纯净体验；
+  // 严格排除搜索表单、输入框、下拉框、搜索建议浮层、搜索筛选及高级搜索面板与排期看板，防止误伤。
+  if (!parsed.live && !parsed.trends && !parsed.whoToFollow) {
     addStyles(
-      'hideSidebarColumn',
-      `${selectors.rightSidebar} { display: none !important; }
-      @media only screen and (min-width: 988px) {
-        body:not([data-xf-account-analytics]) ${selectors.leftSidebar} > div {
-          margin-left: 0px !important;
-        }
-        body:not([data-xf-account-analytics]) ${selectors.mainWrapper} > div:has(${selectors.mainColumn}) {
-          width: fit-content !important;
-          max-width: 100% !important;
-        }
-        body:not([data-xf-account-analytics]) ${selectors.mainWrapper} > div:has(${selectors.mainColumn}) > div {
-          width: fit-content !important;
-          max-width: 100% !important;
-        }
-        body:not([data-xf-account-analytics]) ${selectors.mainWrapper} > div:has(${selectors.mainColumn}) > div > div {
-          width: fit-content !important;
-          max-width: 100% !important;
-        }
-        body:not([data-xf-account-analytics]) ${selectors.mainColumn} {
-          margin-right: 0px !important;
-        }
+      'hideSidebarAllThree',
+      `[data-testid="sidebarColumn"] div.r-1867qdf:not(:has(form)):not(:has(input)):not([role="listbox"]):not(:has([role="listbox"])):not([data-testid*="typeahead"]):not(:has([data-testid*="typeahead"])):not(.xf-sidebar-scheduled-panorama):not(:has(.xf-sidebar-scheduled-panorama)):not([data-testid="searchFilters"]):not(:has([data-testid="searchFilters"])):not(:has(a[href*="/search-advanced"])),
+      [data-testid="sidebarColumn"] section:not(:has(form)):not(:has(input)):not([role="listbox"]):not(:has([role="listbox"])):not([data-testid*="typeahead"]):not(:has([data-testid*="typeahead"])):not(.xf-sidebar-scheduled-panorama):not(:has(.xf-sidebar-scheduled-panorama)):not([data-testid="searchFilters"]):not(:has([data-testid="searchFilters"])):not(:has(a[href*="/search-advanced"])),
+      [data-testid="sidebarColumn"] aside:not(:has(form)):not(:has(input)):not([role="listbox"]):not(:has([role="listbox"])):not([data-testid*="typeahead"]):not(:has([data-testid*="typeahead"])):not(.xf-sidebar-scheduled-panorama):not(:has(.xf-sidebar-scheduled-panorama)):not([data-testid="searchFilters"]):not(:has([data-testid="searchFilters"])):not(:has(a[href*="/search-advanced"])),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:not(:has(form)):not(:has(input)):not(.r-1h3ijdo):not([role="listbox"]):not(:has([role="listbox"])):not([data-testid*="typeahead"]):not(:has([data-testid*="typeahead"])):not(.xf-sidebar-scheduled-panorama):not(:has(.xf-sidebar-scheduled-panorama)):not([data-testid="searchFilters"]):not(:has([data-testid="searchFilters"])):not(:has(a[href*="/search-advanced"])) {
+        display: none !important;
       }`
     )
   } else {
-    removeStyles('hideSidebarColumn')
+    removeStyles('hideSidebarAllThree')
   }
+
+  // 1. X直播
+  if (!parsed.live) {
+    addStyles(
+      'hideSidebarLive',
+      `[data-testid="sidebarColumn"] div.r-1867qdf:has([data-testid="placementTracking"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div.r-1867qdf:has(a[href*="/broadcasts/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has([data-testid="placementTracking"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(a[href*="/broadcasts/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div:has(> * [data-testid="placementTracking"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama):not(:has(section)):not(:has(aside)):not(:has(nav)),
+      [data-testid="sidebarColumn"] div:has(a[href*="/broadcasts/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama) {
+        display: none !important;
+      }`
+    )
+  } else {
+    removeStyles('hideSidebarLive')
+  }
+
+  // 2. X新鲜事
+  if (!parsed.trends) {
+    addStyles(
+      'hideSidebarTrends',
+      `[data-testid="sidebarColumn"] div.r-1867qdf:has([data-testid="trend"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div.r-1867qdf:has(a[href*="/explore/tabs/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div.r-1867qdf:has(section):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has([data-testid="trend"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(a[href*="/explore/tabs/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(section):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] section:has([data-testid="trend"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] section:has(a[href*="/explore/tabs/"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] section:not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama) {
+        display: none !important;
+      }`
+    )
+  } else {
+    removeStyles('hideSidebarTrends')
+  }
+
+  // 3. 推荐关注
+  if (!parsed.whoToFollow) {
+    addStyles(
+      'hideSidebarWhoToFollow',
+      `[data-testid="sidebarColumn"] div.r-1867qdf:has([data-testid="UserCell"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div.r-1867qdf:has(aside):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] div.r-1867qdf:has(a[href*="/connect_people"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has([data-testid="UserCell"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(aside):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(a[href*="/connect_people"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] aside:has([data-testid="UserCell"]):not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] aside[aria-label*="关注"]:not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] aside[aria-label*="Follow"]:not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] aside[aria-label*="Who to follow"]:not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama),
+      [data-testid="sidebarColumn"] aside:not(:has(form)):not(:has(input)):not([role="listbox"]):not([data-testid*="typeahead"]):not(.xf-sidebar-scheduled-panorama) {
+        display: none !important;
+      }`
+    )
+  } else {
+    removeStyles('hideSidebarWhoToFollow')
+  }
+
+  void attachSidebarScheduledPanorama()
 }
 
 export const changeArticleToc = (state: string | number | boolean) => {

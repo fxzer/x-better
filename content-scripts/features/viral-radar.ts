@@ -317,6 +317,15 @@ export async function runViralRadar(force = false) {
             return
           }
         }
+        // 用户配置不展示该级别徽章：已确认过结论，无需重算
+        if (currentKey && stamped === `nobadge:${currentKey}`) {
+          return
+        }
+        // 已确认渲染完成却无展现量的普通评论（详情页大量存在）：
+        // 同样享受幂等跳过，避免每轮重扫 extractTweetViews 等一系列选择器
+        if (currentKey && stamped === `noviews:${currentKey}`) {
+          return
+        }
       }
     }
 
@@ -326,6 +335,15 @@ export async function runViralRadar(force = false) {
     if (views === null || publishTime === null) {
       const existingBadge = article.querySelector<HTMLElement>('[data-xf-viral-badge="1"]')
       if (existingBadge) existingBadge.remove()
+      article.removeAttribute('data-xf-viral-highlight')
+      article.removeAttribute('data-xf-viral-style')
+      // 操作栏与时间戳都已渲染却仍无 views/publishTime → 判定为无需徽章的普通评论，
+      // 打 noviews 前缀标记短路后续轮询；主体尚未渲染完成（分阶段加载）时不打，留待下轮。
+      const settled = article.querySelector('[role="group"]') && article.querySelector('time[datetime]')
+      if (settled) {
+        const skipKey = getTweetKey(article)
+        if (skipKey) article.dataset.xfViralKey = `noviews:${skipKey}`
+      }
       return
     }
 
@@ -355,9 +373,10 @@ export async function runViralRadar(force = false) {
 
     if (!shouldShowBadge) {
       if (badgeContainer) badgeContainer.remove()
-      // 即使不展示徽章也标记为已处理：该推文的「不展示」结论同样无需每轮重算
+      // 用 nobadge 前缀记录“配置决定不展示”，避免下一轮重新计算；
+      // 不要影响 badge 丢失 / 锚点未加载时的重试路径。
       const skipKey = getTweetKey(article)
-      if (skipKey) article.dataset.xfViralKey = skipKey
+      if (skipKey) article.dataset.xfViralKey = `nobadge:${skipKey}`
       return
     }
 

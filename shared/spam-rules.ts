@@ -50,15 +50,98 @@ export function normalizeForSpam(text: string): string {
     .toLowerCase()
 }
 
+/**
+ * 关键词归一化：仅去除标点、空白、emoji、零宽字符并转小写，
+ * 严格保留英文字母，避免 "h动漫" 变成 "动漫"、"日本AV" 变成 "日本" 等灾难性泛化误伤。
+ */
+export function normalizeKeyword(keyword: string): string {
+  if (!keyword) return ''
+  return keyword
+    .replace(/https?:\/\/[^\s]+/g, '')
+    .replace(/@[a-zA-Z0-9_]+/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+    .replace(/[\u200B-\u200D\uFEFF\u2060]/gu, '')
+    .replace(/[，。！？!?,.:;…~～#^*()（）[\]【】\-_/\\|`'"“”‘’<>《》+=`\s]/g, '')
+    .toLowerCase()
+}
+
+/**
+ * 针对中文高危短词（如 "性交"、"口交"、"乱交"、"兽性" 等），甄别是否属于跨词边界伪命中。
+ * 典型场景：
+ * - "选择性交叉刻线" -> "选择性"（-性 后缀）+ "交叉"（交- 前缀）
+ * - "重要性交流" -> "重要性" + "交流"
+ * - "港口交通" -> "港口" + "交通"
+ * - "混乱交付" -> "混乱" + "交付"
+ * - "野兽性能" -> "野兽" + "性能"
+ */
+function isFalsePositiveHit(text: string, kw: string): boolean {
+  if (kw === '性交' || kw === '乱交' || kw === '口交' || kw === '乳交') {
+    let idx = 0
+    while ((idx = text.indexOf(kw, idx)) !== -1) {
+      const nextChar = text[idx + kw.length]
+      if (nextChar && /[叉流付换互接涉割织错汇通谈替融底差办火集]/.test(nextChar)) {
+        idx += kw.length
+        continue
+      }
+      if (kw === '性交' && idx > 0) {
+        const prevChar = text[idx - 1]
+        if (/[择能活重样实段对质统致容遍瞻导规安极定造久一完通用局特理感硬弹韧粘附线刚慢惰好耐适可行]/.test(prevChar)) {
+          idx += kw.length
+          continue
+        }
+      }
+      return false
+    }
+    return true
+  }
+
+  if (kw === '兽性') {
+    let idx = 0
+    while ((idx = text.indexOf(kw, idx)) !== -1) {
+      const nextChar = text[idx + kw.length]
+      if (nextChar === '能') {
+        idx += kw.length
+        continue
+      }
+      return false
+    }
+    return true
+  }
+
+  return false
+}
+
+function isKeywordHitValid(
+  rawText: string,
+  cleanText: string,
+  normText: string,
+  kwLower: string,
+  kwNorm: string,
+): boolean {
+  const hasEnglish = /[a-zA-Z]/.test(kwNorm)
+  const hitRaw = rawText.includes(kwLower)
+  const hitClean = cleanText.includes(kwNorm)
+  const hitNorm = !hasEnglish && kwNorm.length >= 2 && normText.includes(kwNorm)
+
+  if (!hitRaw && !hitClean && !hitNorm) return false
+
+  if (hitRaw && !isFalsePositiveHit(rawText, kwLower)) return true
+  if (hitClean && !isFalsePositiveHit(cleanText, kwNorm)) return true
+  if (hitNorm && !isFalsePositiveHit(normText, kwNorm)) return true
+
+  return false
+}
+
 function checkMarketingNickname(ctx: RuleContext): RuleHit | null {
   const meta = getRuleMeta('marketing_nickname')
   const raw = `${ctx.authorName} ${ctx.authorHandle}`.toLowerCase()
+  const clean = normalizeKeyword(`${ctx.authorName} ${ctx.authorHandle}`)
   const norm = normalizeForSpam(`${ctx.authorName} ${ctx.authorHandle}`)
   const matched = ctx.keywords.find((kw, i) => {
     if (!kw) return false
     const kwLower = kw.toLowerCase()
     const kwNorm = ctx.normalizedKeywords[i]
-    return raw.includes(kwLower) || (kwNorm.length >= 2 && norm.includes(kwNorm))
+    return isKeywordHitValid(raw, clean, norm, kwLower, kwNorm)
   })
   if (!matched) return null
   return { id: meta.id, label: `${meta.label}（"${matched}"）`, score: meta.defaultScore }
@@ -134,6 +217,7 @@ function checkMarketingKeyword(ctx: RuleContext): RuleHit | null {
   if (!ctx.keywords.length) return null
 
   const rawText = ctx.text.toLowerCase()
+  const cleanText = normalizeKeyword(ctx.text)
   const normText = normalizeForSpam(ctx.text)
 
   const matchedKeywords: string[] = []
@@ -142,10 +226,7 @@ function checkMarketingKeyword(ctx: RuleContext): RuleHit | null {
     if (!kw) continue
     const kwLower = kw.toLowerCase()
     const kwNorm = ctx.normalizedKeywords[i]
-    if (
-      rawText.includes(kwLower) ||
-      (kwNorm.length >= 2 && normText.includes(kwNorm))
-    ) {
+    if (isKeywordHitValid(rawText, cleanText, normText, kwLower, kwNorm)) {
       if (!matchedKeywords.includes(kw)) {
         matchedKeywords.push(kw)
       }
@@ -290,7 +371,7 @@ export function evaluateSpam(input: {
     authorName: input.authorName,
     authorHandle: input.authorHandle,
     keywords,
-    normalizedKeywords: input.normalizedKeywords ?? keywords.map((kw) => normalizeForSpam(kw)),
+    normalizedKeywords: input.normalizedKeywords ?? keywords.map((kw) => normalizeKeyword(kw)),
     enabledRules,
   }
 

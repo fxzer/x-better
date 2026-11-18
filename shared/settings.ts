@@ -16,6 +16,7 @@ import {
   KeyNotificationsButton,
   KeyProfileButton,
   KeySidebarColumn,
+  KeySidebarElements,
   KeySpamBlacklist,
   KeySpamDebugMode,
   KeySpamFilterEnabled,
@@ -44,6 +45,10 @@ import {
   KeyJumpToComments,
   KeyBookmarkCount,
   KeyMediaDownloadEnabled,
+  KeySearchDefaultLatest,
+  KeySearchFilterBar,
+  KeyComposerMediaGrid,
+  KeyMediaCarouselSwipe,
   allSettingsKeys,
   defaultPreferences,
 } from '../storage-keys'
@@ -83,6 +88,7 @@ export interface ExtensionSettings {
   [KeySpamWhitelist]: string
   [KeySpamBlacklist]: string
   [KeySidebarColumn]: ToggleValue
+  [KeySidebarElements]: string
   [KeyStatRatioTargetHandle]: string
   [KeyStatRatioEnabled]: ToggleValue
   [KeyHighlightNonFollowers]: ToggleValue
@@ -99,6 +105,10 @@ export interface ExtensionSettings {
   [KeyJumpToComments]: ToggleValue
   [KeyBookmarkCount]: ToggleValue
   [KeyMediaDownloadEnabled]: ToggleValue
+  [KeySearchDefaultLatest]: ToggleValue
+  [KeySearchFilterBar]: ToggleValue
+  [KeyComposerMediaGrid]: ToggleValue
+  [KeyMediaCarouselSwipe]: ToggleValue
 }
 
 export type SettingsPatch = Partial<Record<keyof ExtensionSettings, unknown>>
@@ -126,6 +136,7 @@ const TOGGLE_KEYS = new Set<string>([
   KeySpamFilterEnabled,
   KeySpamDebugMode,
   KeySidebarColumn,
+  KeySidebarElements,
   KeyStatRatioEnabled,
   KeyHighlightNonFollowers,
   KeyViralRadarEnabled,
@@ -137,6 +148,10 @@ const TOGGLE_KEYS = new Set<string>([
   KeyJumpToComments,
   KeyBookmarkCount,
   KeyMediaDownloadEnabled,
+  KeySearchDefaultLatest,
+  KeySearchFilterBar,
+  KeyComposerMediaGrid,
+  KeyMediaCarouselSwipe,
 ])
 
 function normalizeToggle(value: unknown, fallback: ToggleValue): ToggleValue {
@@ -233,6 +248,48 @@ export function parseViralShowBadge(data: Record<string, unknown> | undefined): 
   return data?.[KeyViralShowBadge] !== 'off'
 }
 
+/**
+ * 侧边栏可定制显隐的元素键
+ */
+export type SidebarElementKey = 'live' | 'trends' | 'whoToFollow'
+export const SIDEBAR_ELEMENTS: SidebarElementKey[] = ['live', 'trends', 'whoToFollow']
+
+/**
+ * 归一化侧边栏展示元素：只保留合法选项、保持 fixed 顺序。若未提供则使用默认值。
+ */
+export function normalizeSidebarElements(value: unknown, fallback: string = ''): string {
+  if (typeof value !== 'string') return fallback
+  const tokens = value.split(',').map((s) => s.trim()).filter(Boolean)
+  const set = new Set(tokens.filter((t) => (SIDEBAR_ELEMENTS as string[]).includes(t)))
+  return SIDEBAR_ELEMENTS.filter((e) => set.has(e)).join(',')
+}
+
+export function parseSidebarElements(data: unknown): Record<SidebarElementKey, boolean> {
+  let str: string | undefined
+  if (typeof data === 'string') {
+    str = data
+  } else if (data && typeof (data as Record<string, unknown>)[KeySidebarElements] !== 'undefined') {
+    str = String((data as Record<string, unknown>)[KeySidebarElements])
+  }
+  if (typeof str === 'undefined') {
+    str = ''
+  }
+  const set = new Set(str.split(',').map((s) => s.trim()).filter(Boolean))
+  return {
+    live: set.has('live'),
+    trends: set.has('trends'),
+    whoToFollow: set.has('whoToFollow'),
+  }
+}
+
+export function serializeSidebarElements(elements: Record<SidebarElementKey, boolean>): string {
+  const selected: SidebarElementKey[] = []
+  if (elements.live) selected.push('live')
+  if (elements.trends) selected.push('trends')
+  if (elements.whoToFollow) selected.push('whoToFollow')
+  return selected.join(',')
+}
+
 export function normalizeSettings(raw: Partial<Record<string, unknown>> = {}): ExtensionSettings {
   const result: Record<string, unknown> = {}
 
@@ -255,6 +312,8 @@ export function normalizeSettings(raw: Partial<Record<string, unknown>> = {}): E
       result[key] = normalizeViralHighlightStyle(value, fallback as ViralHighlightStyle)
     } else if (key === KeyViralShowLevels) {
       result[key] = normalizeViralLevels(value, fallback as string)
+    } else if (key === KeySidebarElements) {
+      result[key] = normalizeSidebarElements(value, fallback as string)
     } else {
       result[key] = normalizeString(value, String(fallback ?? ''))
     }

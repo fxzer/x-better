@@ -21,7 +21,7 @@ const RE_MARKDOWN_H2 = /^##\s+(.+)$/
 const RE_MARKDOWN_H3_PLUS = /^#{3,6}\s+(.+)$/
 
 const RE_CHINESE_NUM_L1 = /^(?:(?:第[0-9一二三四五六七八九十百]+[章节篇部分条集期部])|(?:其[次一二三]|首先|最后)[、:：\s]|Part\s*\d+|Chapter\s*\d+|[一二三四五六七八九十]+[、.．])\s*(.*)$/i
-const RE_CHINESE_NUM_L2 = /^(?:(?:然后|接下来)?(?:第[0-9一二三四五六七八九十百]+[个点步阶段方面]))\s*(.*)$/i
+const RE_CHINESE_NUM_L2 = /^(?:(?:然后|接下来)?(?:第[0-9一二三四五六七八九十百]+(?:个|点|步|阶段|方面)))\s*(.*)$/i
 const RE_CHINESE_PAREN_L2 = /^[（(][一二三四五六七八九十]+[）)]\s*(.*)$/
 const RE_ARABIC_NUM_L2 = /^(\d+)[.、．/]\s*(.+)$/
 const RE_ARABIC_PAREN_L2 = /^[（(](\d+)[）)]\s*(.+)$/
@@ -168,7 +168,7 @@ interface BlockInfo {
 /**
  * 从 HTML 节点递归提取文本块
  */
-function extractBlockTexts(element: HTMLElement): BlockInfo[] {
+function extractBlockTexts(element: HTMLElement, isArticleContainer = false): BlockInfo[] {
   const blocks: BlockInfo[] = []
 
   // 匹配所有可能的标题和文本块节点（原生标题、段落、Draft.js 块、推文文本块等）
@@ -178,6 +178,14 @@ function extractBlockTexts(element: HTMLElement): BlockInfo[] {
 
   if (candidateElements.length > 0) {
     candidateElements.forEach((el) => {
+      // 若当前是在解析长文容器，且该节点处于长文正文内部内嵌的推文卡片内部，则直接跳过，避免长文目录混入被引用的推文内容
+      if (isArticleContainer) {
+        const embeddedTweet = el.closest('article[data-testid="tweet"]')
+        if (embeddedTweet && element.contains(embeddedTweet)) {
+          return
+        }
+      }
+
       const tagName = el.tagName.toLowerCase()
       const isNativeHeading =
         tagName === 'h1' ||
@@ -246,15 +254,17 @@ export function extractHeadingsFromArticle(
   let target = rootElement
 
   if (!target) {
-    // 优先寻找长文写作编辑器容器，其次寻找包含整个文章/推文的容器
+    // 优先寻找长文容器（长文 article、阅读/预览视图或长文写作容器），其次寻找普通推文容器。
+    // 注意：长文内部常嵌入推文卡片（article[data-testid="tweet"]），长文容器必须优先于普通推文，
+    // 否则长文（或预览页）会被内嵌推文劫持导致无法提取长文目录。
     target =
-      doc.querySelector<HTMLElement>('[data-testid="composer"]') ||
-      doc.querySelector<HTMLElement>('[data-testid="composerRichTextInputContainer"]') ||
       doc.querySelector<HTMLElement>('article[data-testid="article"]') ||
-      doc.querySelector<HTMLElement>('[data-testid="primaryColumn"] article[data-testid="tweet"]') ||
-      doc.querySelector<HTMLElement>('article[data-testid="tweet"]') ||
       doc.querySelector<HTMLElement>('[data-testid="twitterArticleReadView"]') ||
-      doc.querySelector<HTMLElement>('[data-testid="twitterArticleRichTextView"]')
+      doc.querySelector<HTMLElement>('[data-testid="twitterArticleRichTextView"]') ||
+      doc.querySelector<HTMLElement>('[data-testid="composerRichTextInputContainer"]') ||
+      doc.querySelector<HTMLElement>('[data-testid="composer"]') ||
+      doc.querySelector<HTMLElement>('[data-testid="primaryColumn"] article[data-testid="tweet"]') ||
+      doc.querySelector<HTMLElement>('article[data-testid="tweet"]')
   }
 
   if (!target) return []
@@ -267,6 +277,7 @@ export function extractHeadingsFromArticle(
   const titleEl =
     doc.querySelector<HTMLElement>('textarea[placeholder*="标题"], textarea[placeholder*="title"], textarea[placeholder*="Title"]') ||
     target.querySelector<HTMLElement>('[data-testid="twitter-article-title"]') ||
+    target.closest<HTMLElement>('article, [data-testid="articleEntityView"]')?.querySelector<HTMLElement>('[data-testid="twitter-article-title"]') ||
     target.querySelector<HTMLElement>('h1[role="heading"]') ||
     target.querySelector<HTMLElement>('h1:not([data-block="true"])')
 
@@ -304,8 +315,16 @@ export function extractHeadingsFromArticle(
     '.longform-header-one, .longform-header-two, h1, h2, [role="heading"]',
   )
 
+  const isArticleContainer = Boolean(
+    target.getAttribute('data-testid') === 'twitterArticleReadView' ||
+    target.getAttribute('data-testid') === 'twitterArticleRichTextView' ||
+    target.getAttribute('data-testid') === 'composerRichTextInputContainer' ||
+    target.getAttribute('data-testid') === 'article' ||
+    target.querySelector('[data-testid="twitterArticleRichTextView"], [data-testid="twitterArticleReadView"]')
+  )
+
   // 3. 提取所有段落/行块
-  const blocks = extractBlockTexts(bodyEl)
+  const blocks = extractBlockTexts(bodyEl, isArticleContainer)
 
   for (const block of blocks) {
     const el = block.element

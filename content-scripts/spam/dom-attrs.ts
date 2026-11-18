@@ -13,6 +13,7 @@ export const XF_SELF_SELECTOR = [
   '[data-xf-list-dropdown]',
   '[data-xf-kw-btn]',
   '[data-xf-list-btn]',
+  '[data-xf-copy-btn]',
   '[data-xf-kw-panel]',
   '[data-xf-viral-badge]',
 ].join(',')

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { JSDOM } from 'jsdom'
 import {
   toOriginalImageUrl,
+  inferImageExtFromUrl,
   generateMediaFilename,
   extractTweetMediaFromGraphql,
   harvestAllTweetMediaFromGraphql,
@@ -446,6 +447,16 @@ describe('推文媒体解析与下载工具函数测试 (tweet-media)', () => {
 
       expect(btn.classList.contains('xf-shift-left')).toBe(false)
       expect(btn.style.getPropertyValue('right')).toBe('')
+    })
+  })
+
+  describe('inferImageExtFromUrl 扩展名解析', () => {
+    it('从 format 参数或路径后缀识别 png/webp/jpg 并规范 jpeg->jpg', () => {
+      expect(inferImageExtFromUrl('https://pbs.twimg.com/media/abc?format=png&name=medium')).toBe('png')
+      expect(inferImageExtFromUrl('https://pbs.twimg.com/media/abc?format=webp&name=large')).toBe('webp')
+      expect(inferImageExtFromUrl('https://pbs.twimg.com/media/abc?format=jpeg&name=orig')).toBe('jpg')
+      expect(inferImageExtFromUrl('https://pbs.twimg.com/media/abc.png')).toBe('png')
+      expect(inferImageExtFromUrl('')).toBe('jpg')
     })
   })
 })

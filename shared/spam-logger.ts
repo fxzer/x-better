@@ -78,6 +78,21 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
   return next
 }
 
+/**
+ * 跨标签页原子互斥锁：
+ * 现代浏览器（Chrome 69+）内置 navigator.locks，原生保证跨同源所有标签页/Worker 的互斥执行；
+ * 在环境不支持（如 Node 单测或旧沙箱）时优雅降级为既有的 Promise 串行队列。
+ */
+async function runWithCrossTabLock<T>(lockName: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? (navigator as any).locks : null
+  if (locks && typeof locks.request === 'function') {
+    return locks.request(lockName, { mode: 'exclusive' }, async () => {
+      return await fn()
+    })
+  }
+  return await fn()
+}
+
 const pendingEntries: Array<Omit<SpamLogEntry, 'id' | 'timestamp'>> = []
 const pendingResolvers: Array<() => void> = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
@@ -89,45 +104,47 @@ async function flushPending(): Promise<void> {
 
   try {
     await serialize(async () => {
-      const data = await browser.storage.local.get([KeySpamLog, KeySpamStats])
-      const log = Array.isArray(data[KeySpamLog]) ? (data[KeySpamLog] as SpamLogEntry[]) : []
-      const stats = Array.isArray(data[KeySpamStats]) ? (data[KeySpamStats] as DailyStats[]) : []
-      const today = getTodayKey()
+      await runWithCrossTabLock('xf_spam_logger_storage_lock', async () => {
+        const data = await browser.storage.local.get([KeySpamLog, KeySpamStats])
+        const log = Array.isArray(data[KeySpamLog]) ? (data[KeySpamLog] as SpamLogEntry[]) : []
+        const stats = Array.isArray(data[KeySpamStats]) ? (data[KeySpamStats] as DailyStats[]) : []
+        const today = getTodayKey()
 
-      let todayStat = stats.find((s) => s.date === today)
-      if (!todayStat) {
-        todayStat = { date: today, total: 0, byCategory: emptyCategoryStats() }
-        stats.unshift(todayStat)
-      }
+        let todayStat = stats.find((s) => s.date === today)
+        if (!todayStat) {
+          todayStat = { date: today, total: 0, byCategory: emptyCategoryStats() }
+          stats.unshift(todayStat)
+        }
 
-      const newEntries: SpamLogEntry[] = []
-      const now = Date.now()
-      // batch 是按拦截顺序进入队列的，log 数组是以最新项在最前（index 0）排列。
-      // 因此将新截获批次以逆序（最新在前）前置合并进 log。
-      for (let i = batch.length - 1; i >= 0; i--) {
-        const entry = batch[i]
-        const id = `${now}-${i}-${Math.random().toString(36).slice(2, 8)}`
-        newEntries.push({
-          id,
-          timestamp: now,
-          ...entry,
+        const newEntries: SpamLogEntry[] = []
+        const now = Date.now()
+        // batch 是按拦截顺序进入队列的，log 数组是以最新项在最前（index 0）排列。
+        // 因此将新截获批次以逆序（最新在前）前置合并进 log。
+        for (let i = batch.length - 1; i >= 0; i--) {
+          const entry = batch[i]
+          const id = `${now}-${i}-${Math.random().toString(36).slice(2, 8)}`
+          newEntries.push({
+            id,
+            timestamp: now,
+            ...entry,
+          })
+          todayStat.total += 1
+          todayStat.byCategory[entry.category] = (todayStat.byCategory[entry.category] || 0) + 1
+        }
+
+        const nextLog = [...newEntries, ...log].slice(0, MAX_LOG_ENTRIES)
+
+        // 清理过期统计
+        const cutoff = now - STAT_RETENTION_DAYS * 24 * 60 * 60 * 1000
+        const nextStats = stats.filter((s) => {
+          const ts = new Date(s.date).getTime()
+          return Number.isFinite(ts) && ts >= cutoff - 24 * 60 * 60 * 1000
         })
-        todayStat.total += 1
-        todayStat.byCategory[entry.category] = (todayStat.byCategory[entry.category] || 0) + 1
-      }
 
-      const nextLog = [...newEntries, ...log].slice(0, MAX_LOG_ENTRIES)
-
-      // 清理过期统计
-      const cutoff = now - STAT_RETENTION_DAYS * 24 * 60 * 60 * 1000
-      const nextStats = stats.filter((s) => {
-        const ts = new Date(s.date).getTime()
-        return Number.isFinite(ts) && ts >= cutoff - 24 * 60 * 60 * 1000
-      })
-
-      await browser.storage.local.set({
-        [KeySpamLog]: nextLog,
-        [KeySpamStats]: nextStats,
+        await browser.storage.local.set({
+          [KeySpamLog]: nextLog,
+          [KeySpamStats]: nextStats,
+        })
       })
     })
   } catch (err) {

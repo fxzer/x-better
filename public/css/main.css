@@ -14,6 +14,18 @@ a[href*="quick_promote_web"] {
   visibility: hidden;
 }
 
+/* Hide Sidebar Footer (Terms, Privacy, Copyright) */
+[data-testid="sidebarColumn"] div.r-1867qdf:has(nav[role="navigation"]),
+[data-testid="sidebarColumn"] .r-vacyoi.r-ttdzmv > div:has(nav[role="navigation"]),
+[data-testid="sidebarColumn"] div:has(> nav[aria-label*="页脚"]),
+[data-testid="sidebarColumn"] div:has(> nav[aria-label*="Footer"]),
+[data-testid="sidebarColumn"] nav[aria-label*="页脚"],
+[data-testid="sidebarColumn"] nav[aria-label*="Footer"],
+[data-testid="sidebarColumn"] nav[role="navigation"]:has(a[href*="/tos"]),
+[data-testid="sidebarColumn"] nav[role="navigation"]:has(a[href*="/privacy"]) {
+  display: none !important;
+}
+
 /* Twitter has a large screen breakpoint at 1000px */
 /* Twitter web's small screen styles (< 988px) are minimal */
 @media only screen and (min-width: 1000px) {
@@ -262,9 +274,29 @@ a[href*="quick_promote_web"] {
   display: block;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   max-height: 440px;
   padding-right: 4px;
   width: 100%;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+.xf-toc-items::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.xf-toc-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+.xf-toc-items::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.2);
+  border-radius: 9999px;
+}
+.xf-toc-items:hover::-webkit-scrollbar-thumb {
+  background: rgba(150, 150, 150, 0.26);
+}
+.xf-toc-items::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.34);
 }
 
 .xf-toc-item {

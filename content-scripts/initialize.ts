@@ -1,15 +1,20 @@
 import { runDynamicFeatures, type DynamicFeatureScope } from './features/dynamic'
 import { applyStaticFeatures } from './features/static'
 import addStyleSheet from './utilities/addStyleSheet'
-import addStyles from './utilities/addStyles'
 import { extractColorsAsRootVars } from './utilities/colors'
 import debounce from './utilities/debounce'
 import isMutationSkippable from './utilities/isMutationSkippable'
 import { getSettings } from './utilities/storage'
 import { attachPrecomposeUrlCapture, savePrecomposeUrl } from './options/precompose'
-import { listenForScheduledTweetsApi } from './options/scheduled-time'
+import {
+  listenForScheduledTweetsApi,
+  attachComposerScheduleSubmitWatcher,
+  autoOpenScheduledTweetFromSession,
+} from './options/scheduled-time'
+import { renderArticleImagePreviewButtons } from './features/article-image-preview'
 import { listenForBookmarkMetricsApi } from './features/bookmark-counter'
 import { trackShareButtonClick, injectMediaHoverButtons } from './features/tweet-media-download'
+import { initSearchTools } from './features/search-tools'
 
 function addStylesheets() {
   addStyleSheet('main', browser.runtime.getURL('css/main.css' as any))
@@ -17,12 +22,21 @@ function addStylesheets() {
 
 function addMutationObserver() {
   let lastPathname = window.location.pathname
+  let lastSearch = window.location.search
   const observer = new MutationObserver((mutations) => {
     if (!mutations.length || isMutationSkippable(mutations)) return
     const scopes = getDynamicFeatureScopes(mutations)
     if (window.location.pathname !== lastPathname) {
       lastPathname = window.location.pathname
+      lastSearch = window.location.search
       savePrecomposeUrl()
+      scopes.add('all')
+      if (window.location.pathname.includes('/unsent')) {
+        autoOpenScheduledTweetFromSession()
+      }
+      renderArticleImagePreviewButtons()
+    } else if (window.location.search !== lastSearch) {
+      lastSearch = window.location.search
       scopes.add('all')
     }
     if (scopes.size > 0) runDynamicFeatures(undefined, scopes)
@@ -37,12 +51,16 @@ export function getDynamicFeatureScopes(mutations: MutationRecord[]): Set<Dynami
     const el = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement
     if (!el) return
     const contains = (selector: string) => includeDescendants && Boolean(el.querySelector(selector))
-    if (el.closest('article[data-testid="tweet"], [data-testid="UserCell"]') || contains('article[data-testid="tweet"], [data-testid="UserCell"]')) {
+    if (el.closest('article[data-testid="tweet"], [data-testid="UserCell"], [data-testid="HoverCard"]') || contains('article[data-testid="tweet"], [data-testid="UserCell"], [data-testid="HoverCard"]')) {
       scopes.add('tweet')
     }
     if (
-      el.closest('[role="dialog"], [data-testid="composer"], [data-testid="composerRichTextInputContainer"], [data-testid="twitterArticleRichTextView"], [data-testid="twitterArticleReadView"]') ||
-      contains('[role="dialog"], [data-testid="composer"], [data-testid="composerRichTextInputContainer"], [data-testid="twitterArticleRichTextView"], [data-testid="twitterArticleReadView"]')
+      el.closest(
+        '[role="dialog"], [data-testid="composer"], [data-testid="toolBar"], [data-testid="ScrollSnap-List"], [data-testid="composerRichTextInputContainer"], [data-testid="twitterArticleRichTextView"], [data-testid="twitterArticleReadView"]',
+      ) ||
+      contains(
+        '[role="dialog"], [data-testid="composer"], [data-testid="toolBar"], [data-testid="ScrollSnap-List"], [data-testid="composerRichTextInputContainer"], [data-testid="twitterArticleRichTextView"], [data-testid="twitterArticleReadView"]',
+      )
     ) {
       scopes.add('composer')
       scopes.add('scheduled')
@@ -50,8 +68,18 @@ export function getDynamicFeatureScopes(mutations: MutationRecord[]): Set<Dynami
     if (el.closest('nav[role="navigation"]') || contains('nav[role="navigation"]')) {
       scopes.add('navigation')
     }
-    if (el.closest('[data-testid="unsentTweet"]') || contains('[data-testid="unsentTweet"]')) {
-      scopes.add('scheduled')
+
+    // 搜索输入框、搜索建议下拉、搜索表单内的交互变动不应触发 scheduled 重绘，防止输入失焦与闪烁
+    const isSearchElement = Boolean(
+      el.closest('form[role="search"], [data-testid*="SearchBox"], [data-testid*="typeahead"], [role="listbox"]')
+    )
+    if (!isSearchElement) {
+      if (
+        el.closest('[data-testid="unsentTweet"], [data-testid="sidebarColumn"]') ||
+        contains('[data-testid="unsentTweet"], [data-testid="sidebarColumn"]')
+      ) {
+        scopes.add('scheduled')
+      }
     }
   }
 
@@ -79,9 +107,13 @@ export async function initializeExtension() {
   // 数据监听必须最先注册：排期数据不依赖任何 DOM 操作，
   // 后续静态/动态特性即使抛错也不能影响数据持久化链路。
   listenForScheduledTweetsApi()
+  attachComposerScheduleSubmitWatcher()
+  autoOpenScheduledTweetFromSession()
+  renderArticleImagePreviewButtons()
   listenForBookmarkMetricsApi()
   trackShareButtonClick()
   void injectMediaHoverButtons()
+  initSearchTools()
 
   const settings = await getSettings()
 

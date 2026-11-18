@@ -55,6 +55,26 @@ export function toOriginalImageUrl(rawUrl: string): string {
 }
 
 /**
+ * 从图片 URL 中提取实际扩展名（优先解析 `?format=` 参数，其次解析路径后缀）
+ */
+export function inferImageExtFromUrl(rawUrl: string, fallback = 'jpg'): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return fallback
+  try {
+    const url = new URL(rawUrl, 'https://pbs.twimg.com')
+    const fmt = url.searchParams.get('format')?.trim().toLowerCase()
+    if (fmt && /^[a-z0-9]{2,5}$/.test(fmt)) {
+      return fmt === 'jpeg' ? 'jpg' : fmt
+    }
+    const extMatch = /\.([a-z0-9]{2,5})$/i.exec(url.pathname)
+    if (extMatch) {
+      const ext = extMatch[1].toLowerCase()
+      return ext === 'jpeg' ? 'jpg' : ext
+    }
+  } catch {}
+  return fallback
+}
+
+/**
  * 生成符合规范的保存文件名
  * 规则：x_{author}_{tweetId}_{index}.{ext}，全英文/下划线无特殊字符
  */

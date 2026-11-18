@@ -3,6 +3,7 @@ import { KeyArticleToc } from '../../storage-keys'
 import { getStorage } from '../utilities/storage'
 import addStyles from '../utilities/addStyles'
 import debounce from '../utilities/debounce'
+import { buildThinScrollbarCss } from '../utilities/scrollbarStyles'
 
 const TOC_STYLES = `
 .xf-toc-container,
@@ -37,9 +38,6 @@ const TOC_STYLES = `
   width: 32px !important;
   min-width: 32px !important;
   max-width: 32px !important;
-  background: transparent !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
   border: none !important;
   box-shadow: none !important;
   transition: all 0.2s ease !important;
@@ -110,7 +108,6 @@ body[style*="background-color: rgb(21, 32, 43)"] .xf-toc-minimal {
 .xf-toc-line-bar.active {
   background-color: #1d9bf0 !important;
   opacity: 1 !important;
-  box-shadow: 0 0 8px rgba(29, 155, 240, 0.95) !important;
   transform: scaleX(1.2);
 }
 
@@ -192,18 +189,13 @@ body[style*="background-color: rgb(21, 32, 43)"] .xf-toc-header {
   display: block !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
   max-height: calc(min(720px, 82vh) - 52px) !important;
   padding-right: 4px !important;
   width: 100% !important;
 }
 
-.xf-toc-items::-webkit-scrollbar {
-  width: 4px !important;
-}
-.xf-toc-items::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.35) !important;
-  border-radius: 2px !important;
-}
+${buildThinScrollbarCss(['.xf-toc-items'])}
 
 .xf-toc-item {
   display: flex !important;
@@ -349,6 +341,7 @@ class ArticleTocManager {
     // 既无文章容器且无已挂载的目录面板时直接短路，避免主页高频滚动反复 IPC 读 storage 与遍历 DOM。
     const hasArticleOrComposer = Boolean(
       window.location.pathname.includes('/article') ||
+      window.location.pathname.includes('/articles') ||
       document.querySelector('[data-testid="composer"], [data-testid="composerRichTextInputContainer"], [data-testid="twitterArticleReadView"], [data-testid="twitterArticleRichTextView"], article[data-testid="article"]')
     )
     if (!hasArticleOrComposer && !this.container) {

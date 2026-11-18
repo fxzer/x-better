@@ -42,7 +42,7 @@ export function segmentText(text: string): SegmentInfo[] {
   for (const seg of raw) {
     const t = seg.segment.trim()
     if (!t) continue
-    const useful = !isUrl(t) && !isHandle(t) && !isPureEmoji(t) && !isPurePunct(t)
+    const useful = !isUrl(t) && !isHandle(t) && !isPurePunct(t)
     result.push({ text: t, useful })
   }
   return result

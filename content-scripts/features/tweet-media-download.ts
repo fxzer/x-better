@@ -8,6 +8,7 @@
 import {
   extractTweetInfoFromDom,
   generateMediaFilename,
+  inferImageExtFromUrl,
   toOriginalImageUrl,
   type ExtractedTweetMedia,
 } from '../../shared/tweet-media'
@@ -274,6 +275,75 @@ export function showMediaToast(
   }
 }
 
+function isContextInvalidated(err: unknown): boolean {
+  const msg = String((err as any)?.message || err || '')
+  return !browser?.runtime?.id || /context invalidated|receiving end does not exist/i.test(msg)
+}
+
+async function triggerBlobDownload(url: string, filename: string): Promise<void> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000)
+  }
+}
+
+/**
+ * 统一的图片下载调度：
+ * 1. 优先走 background `chrome.downloads`（无弹窗直存并支持重命名）；
+ * 2. 若扩展刚重载上下文失效、或后台下载被拒绝，尝试页面内 CORS Blob 直下（`pbs.twimg.com` 支持 CORS）；
+ * 3. 若 `name=orig` 不可用，自动回退原始可见 URL `fallbackUrl`。
+ */
+async function requestImageDownload(
+  origUrl: string,
+  fallbackUrl: string,
+  filename: string,
+): Promise<void> {
+  const candidates = fallbackUrl && fallbackUrl !== origUrl ? [origUrl, fallbackUrl] : [origUrl]
+  let lastError: unknown = null
+
+  for (const url of candidates) {
+    if (browser?.runtime?.id) {
+      try {
+        const res = await browser.runtime.sendMessage({
+          type: 'XF_DOWNLOAD_MEDIA',
+          url,
+          filename,
+        })
+        if (res && res.ok) return
+        lastError = new Error(res?.error || '后台下载失败')
+      } catch (err) {
+        lastError = err
+      }
+    } else {
+      lastError = new Error('Extension context invalidated')
+    }
+
+    try {
+      await triggerBlobDownload(url, filename)
+      return
+    } catch (blobErr) {
+      lastError = blobErr
+    }
+  }
+
+  if (isContextInvalidated(lastError)) {
+    throw new Error('扩展已更新，请刷新当前页面后重试')
+  }
+  const reason = String((lastError as any)?.message || lastError || '')
+  throw new Error(reason ? `下载失败: ${reason.slice(0, 60)}` : '下载原图失败，请重试')
+}
+
 // ── 媒体解析辅助（优先利用 MAIN world 拦截器捕获的缓存，极速秒开） ───────────
 
 async function resolveTweetMedia(tweetId: string): Promise<ExtractedTweetMedia | null> {
@@ -404,9 +474,14 @@ export async function injectMediaHoverButtons(root: Element = document.body): Pr
       e.preventDefault()
       e.stopPropagation()
 
-      // 提取图片直链
+      // 提取图片直链（优先读取 <img>，回退背景图 URL）
       const img = photoContainer.querySelector<HTMLImageElement>('img[src*="pbs.twimg.com/media/"], img')
-      const rawSrc = img?.currentSrc || img?.src || ''
+      let rawSrc = img?.currentSrc || img?.src || ''
+      if (!rawSrc) {
+        const bgEl = photoContainer.querySelector<HTMLElement>('[style*="background-image"]')
+        const bgMatch = /url\(["']?([^"')]+)["']?\)/.exec(bgEl?.style.backgroundImage || '')
+        if (bgMatch?.[1]) rawSrc = bgMatch[1]
+      }
       if (!rawSrc) {
         showMediaToast('未找到有效图片链接', 'error')
         return
@@ -435,31 +510,23 @@ export async function injectMediaHoverButtons(root: Element = document.body): Pr
       // 右上角 Toast 提示
       const toast = showMediaToast('正在下载原图...', 'loading')
 
-      const filename = generateMediaFilename(info?.authorHandle, info?.tweetId, 'jpg', photoIndex)
+      const ext = inferImageExtFromUrl(rawSrc)
+      const filename = generateMediaFilename(info?.authorHandle, info?.tweetId, ext, photoIndex)
 
       try {
-        const res = await browser.runtime.sendMessage({
-          type: 'XF_DOWNLOAD_MEDIA',
-          url: origUrl,
-          filename,
-        })
-
-        if (res && res.ok) {
-          btn.classList.remove('xf-loading')
-          btn.classList.add('xf-success')
-          btn.innerHTML = ICON_CHECK
-          toast.update(`已下载: ${filename}`, 'success')
-          setTimeout(() => {
-            btn.classList.remove('xf-success')
-            btn.innerHTML = ICON_DOWNLOAD
-          }, 1500)
-        } else {
-          throw new Error(res?.error || '下载失败')
-        }
-      } catch (err) {
+        await requestImageDownload(origUrl, rawSrc, filename)
+        btn.classList.remove('xf-loading')
+        btn.classList.add('xf-success')
+        btn.innerHTML = ICON_CHECK
+        toast.update(`已下载: ${filename}`, 'success')
+        setTimeout(() => {
+          btn.classList.remove('xf-success')
+          btn.innerHTML = ICON_DOWNLOAD
+        }, 1500)
+      } catch (err: any) {
         btn.classList.remove('xf-loading')
         btn.innerHTML = ICON_DOWNLOAD
-        toast.update('下载原图失败，请重试', 'error')
+        toast.update(err?.message || '下载原图失败，请重试', 'error')
       }
     })
 
@@ -663,14 +730,11 @@ export async function enhanceTweetMediaMenu(dropdown: Element): Promise<void> {
 
       for (let i = 0; i < info.photos.length; i++) {
         const p = info.photos[i]
-        const filename = generateMediaFilename(info.authorHandle, info.tweetId, 'jpg', count > 1 ? i + 1 : undefined)
+        const ext = inferImageExtFromUrl(p.url)
+        const filename = generateMediaFilename(info.authorHandle, info.tweetId, ext, count > 1 ? i + 1 : undefined)
         try {
-          const dRes = await browser.runtime.sendMessage({
-            type: 'XF_DOWNLOAD_MEDIA',
-            url: p.origUrl,
-            filename,
-          })
-          if (dRes && dRes.ok) successCount++
+          await requestImageDownload(p.origUrl, p.url, filename)
+          successCount++
         } catch {}
         // 错开 150ms 避免浏览器拦截批量下载
         if (i < info.photos.length - 1) {

@@ -9,6 +9,7 @@ import {
 } from '../content-scripts/spam/scanner'
 import { runViralRadar, invalidateViralRadarCache } from '../content-scripts/features/viral-radar'
 import { dynamicFeatures, invalidateDynamicSettingsCache } from '../content-scripts/features/dynamic'
+import { notifyScheduledPostsChanged } from '../content-scripts/options/scheduled-time'
 import constructNewData from '../content-scripts/utilities/constructNewData'
 import { getStorage } from '../content-scripts/utilities/storage'
 import { XF_BRIDGE_MARKER } from '../shared/bridge'
@@ -19,11 +20,20 @@ import {
   KeyStatRatioEnabled,
   KeyStatRatioTargetHandle,
   KeyHighlightNonFollowers,
+  KeyScheduledPostsCache,
+  KeyLastTweetSentAt,
+  KeyComposerMediaGrid,
+  KeyMediaCarouselSwipe,
+  KeySearchFilterBar,
+  KeySearchDefaultLatest,
   SPAM_RELEVANT_KEYS,
   VIRAL_RELEVANT_KEYS,
   allSettingsKeys,
   type SettingKey,
 } from '../storage-keys'
+import { invalidateComposerMediaCache, updateComposerMediaGrids } from '../content-scripts/options/composer-media'
+import { invalidateSearchToolsCache, updateSearchTools } from '../content-scripts/features/search-tools'
+import { invalidateMediaCarouselCache, updateMediaCarousels } from '../content-scripts/features/media-carousel'
 
 const SETTING_KEYS = new Set<string>(allSettingsKeys)
 
@@ -63,12 +73,32 @@ export default defineContentScript({
         return
       }
 
+      const changedKeys = Object.keys(changes)
+      const changedSettingKeys = changedKeys.filter((key): key is SettingKey =>
+        SETTING_KEYS.has(key),
+      )
+      const spamChanged = changedKeys.some((k) => SPAM_RELEVANT_KEYS.has(k))
+      const viralChanged = changedKeys.some((k) => VIRAL_RELEVANT_KEYS.has(k))
+      const scheduledChanged = changedKeys.includes(KeyScheduledPostsCache) || changedKeys.includes(KeyLastTweetSentAt)
+      const composerMediaChanged = changedKeys.includes(KeyComposerMediaGrid)
+      const mediaCarouselChanged = changedKeys.includes(KeyMediaCarouselSwipe)
+      const searchChanged = changedKeys.includes(KeySearchFilterBar) || changedKeys.includes(KeySearchDefaultLatest)
+
+      if (
+        changedSettingKeys.length === 0 &&
+        !spamChanged &&
+        !viralChanged &&
+        !scheduledChanged &&
+        !composerMediaChanged &&
+        !mediaCarouselChanged &&
+        !searchChanged
+      ) {
+        return
+      }
+
       const status = await getStorage(extKey)
       if (status === 'off') return
 
-      const changedSettingKeys = Object.keys(changes).filter((key): key is SettingKey =>
-        SETTING_KEYS.has(key),
-      )
       if (changedSettingKeys.length > 0) {
         const relevantChanges = Object.fromEntries(
           changedSettingKeys.map((key) => [key, changes[key]]),
@@ -96,7 +126,6 @@ export default defineContentScript({
       }
 
       // 任意 spam 相关 key 变化时，刷新扫描
-      const spamChanged = Object.keys(changes).some((k) => SPAM_RELEVANT_KEYS.has(k))
       if (spamChanged) {
         invalidateSpamConfig()
         if (changes[KeySpamFilterEnabled]?.newValue === 'off') {
@@ -109,10 +138,29 @@ export default defineContentScript({
       }
 
       // 任意 爆款雷达 相关 key 变化时，立即重扫
-      const viralChanged = Object.keys(changes).some((k) => VIRAL_RELEVANT_KEYS.has(k))
       if (viralChanged) {
         invalidateViralRadarCache()
         void runViralRadar(true)
+      }
+
+      // 排期缓存或即时发帖时间戳变更时，跨标签页通知当前页面各排期视图（浮动面板、侧边栏）实时更新
+      if (scheduledChanged) {
+        notifyScheduledPostsChanged()
+      }
+
+      if (composerMediaChanged) {
+        invalidateComposerMediaCache()
+        void updateComposerMediaGrids()
+      }
+
+      if (mediaCarouselChanged) {
+        invalidateMediaCarouselCache()
+        void updateMediaCarousels()
+      }
+
+      if (searchChanged) {
+        invalidateSearchToolsCache()
+        void updateSearchTools()
       }
     })
 

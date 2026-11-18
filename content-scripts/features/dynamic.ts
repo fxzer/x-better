@@ -27,7 +27,11 @@ import { runViralRadar } from './viral-radar'
 import { injectKeywordButton } from '../spam/keyword-picker'
 import { updateArticleToc } from './article-toc'
 import { updateJumpToComments } from './jump-to-comments'
+import { renderArticleImagePreviewButtons } from './article-image-preview'
 import { updateBookmarkCounters } from './bookmark-counter'
+import { updateComposerMediaGrids } from '../options/composer-media'
+import { updateSearchTools } from './search-tools'
+import { updateMediaCarousels } from './media-carousel'
 
 export type DynamicFeatureScope = 'tweet' | 'composer' | 'scheduled' | 'navigation' | 'all'
 
@@ -78,43 +82,64 @@ export const dynamicFeatures = {
         pendingScopes.clear()
 
         if (includesScope(scopes, 'tweet')) {
-          addMediaDownloadButtons()
-          updateBookmarkCounters()
-          // 推文操作按钮（选词/名单）独立于 spam 过滤器生命周期注入：
-          // dynamic observer 总是运行，即使用户关闭净化，新推文上仍会出现这些按钮。
-          // injectKeywordButton 自身幂等（KW_BTN_ATTR 标记），与 scanner 内的调用不冲突。
-          document
-            .querySelectorAll<HTMLElement>('article[data-testid="tweet"]')
-            .forEach(injectKeywordButton)
-          updateProfileActivityStats()
-          void runViralRadar()
-          updateArticleToc()
-          void updateJumpToComments()
-          const s = await getCachedTweetSettings()
-          if (s.ratioEnabled) {
-            addStatRatioBadges(s.targetHandle)
-          } else {
-            document.querySelectorAll('.xf-stat-ratio-badge').forEach((el) => el.remove())
+          try {
+            addMediaDownloadButtons()
+            updateBookmarkCounters()
+            // 推文操作按钮（选词/名单）独立于 spam 过滤器生命周期注入：
+            // dynamic observer 总是运行，即使用户关闭净化，新推文上仍会出现这些按钮。
+            // injectKeywordButton 自身幂等（KW_BTN_ATTR 标记），与 scanner 内的调用不冲突。
+            document
+              .querySelectorAll<HTMLElement>('article[data-testid="tweet"]')
+              .forEach(injectKeywordButton)
+            updateProfileActivityStats()
+            void runViralRadar()
+            updateArticleToc()
+            void updateJumpToComments()
+            const s = await getCachedTweetSettings()
+            if (s.ratioEnabled) {
+              addStatRatioBadges(s.targetHandle)
+            } else {
+              document.querySelectorAll('.xf-stat-ratio-badge').forEach((el) => el.remove())
+            }
+            changeHighlightNonFollowers(s.highlightNonFollowers)
+            void updateMediaCarousels()
+          } catch (e) {
+            console.warn('[X Focus] tweet scope execution error:', e)
           }
-          changeHighlightNonFollowers(s.highlightNonFollowers)
         }
 
         if (includesScope(scopes, 'composer')) {
-          addComposerInsertLinkButton()
-          updateArticleToc()
-        }
-        if (includesScope(scopes, 'scheduled')) {
-          const schedState = await getStorage(KeyScheduledPanorama)
-          if (schedState !== 'off') {
-            await addScheduledRelativeTimes('on')
-          } else {
-            removeScheduledPanorama()
+          try {
+            addComposerInsertLinkButton()
+            updateArticleToc()
+            void updateComposerMediaGrids()
+          } catch (e) {
+            console.warn('[X Focus] composer scope execution error:', e)
           }
-          maintainScheduledPostsCache()
         }
+
+        // 排期全景只依赖 /unsent 卡片与侧边栏（scheduled scope），
+        // 不随时间线推文（tweet scope）滚动重跑。
+        if (includesScope(scopes, 'scheduled')) {
+          try {
+            const schedState = await getStorage(KeyScheduledPanorama)
+            if (schedState !== 'off') {
+              await addScheduledRelativeTimes('on')
+            } else {
+              removeScheduledPanorama()
+            }
+            maintainScheduledPostsCache()
+          } catch (e) {
+            console.warn('[X Focus] scheduled scope execution error:', e)
+          }
+        }
+
         if (includesScope(scopes, 'navigation')) {
           syncAccountAnalyticsPageMarker()
         }
+
+        renderArticleImagePreviewButtons()
+        void updateSearchTools()
       }
     } finally {
       generalInFlight = false

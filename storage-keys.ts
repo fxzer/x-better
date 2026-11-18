@@ -23,13 +23,25 @@ export const KeyMoreMenuButton = 'moreMenuButton'
 export const KeyNavigationButtonsLabels = 'navigationButtonsLabels'
 export const KeyTweetButton = 'tweetButton'
 export const KeySidebarColumn = 'sidebarColumn'
+export const KeySidebarElements = 'sidebarElements'
 export const KeyHighlightNonFollowers = 'highlightNonFollowers'
 export const KeyArticleToc = 'articleToc'
 export const KeyScheduledPanorama = 'scheduledPanorama'
 export const KeyJumpToComments = 'jumpToComments'
 export const KeyBookmarkCount = 'bookmarkCount'
 export const KeyMediaDownloadEnabled = 'mediaDownloadEnabled'
+export const KeySmartScheduleInterval = 'xf_smart_schedule_interval_mins' // 智能排期发帖间隔滑块偏好
 export const KeyDiscoveredNavItems = 'discoveredNavItems' // 网页端静默嗅探到的最新导航项缓存
+
+// 搜索增强 keys
+export const KeySearchDefaultLatest = 'searchDefaultLatest' // 新搜索打开「最新」标签
+export const KeySearchFilterBar = 'searchFilterBar' // 搜索结果页标签下的筛选条
+
+// 发帖框多图排序 keys
+export const KeyComposerMediaGrid = 'composerMediaGrid' // 发帖框多图拖拽排序
+
+// 多图推文轮播横滑浏览
+export const KeyMediaCarouselSwipe = 'mediaCarouselSwipe' // 多图推文图片惯性横滑与底部进度条
 
 // Spam filter storage keys
 export const KeySpamFilterEnabled = 'spamFilterEnabled'
@@ -48,6 +60,7 @@ export const KeyStatRatioTargetHandle = 'statRatioTargetHandle'
 export const KeyStatRatioEnabled = 'statRatioEnabled'
 export const KeyProfileActivityStats = 'profileActivityStats'
 export const KeyScheduledPostsCache = 'scheduledPostsCache'
+export const KeyLastTweetSentAt = 'lastTweetSentAt'
 
 // Viral Tweet Radar storage keys
 export const KeyViralRadarEnabled = 'viralRadarEnabled'
@@ -89,6 +102,7 @@ export const allSettingsKeys = [
   KeySpamWhitelist,
   KeySpamBlacklist,
   KeySidebarColumn,
+  KeySidebarElements,
   KeyStatRatioTargetHandle,
   KeyStatRatioEnabled,
   KeyHighlightNonFollowers,
@@ -105,6 +119,10 @@ export const allSettingsKeys = [
   KeyJumpToComments,
   KeyBookmarkCount,
   KeyMediaDownloadEnabled,
+  KeySearchDefaultLatest,
+  KeySearchFilterBar,
+  KeyComposerMediaGrid,
+  KeyMediaCarouselSwipe,
 ] as const
 
 export type SettingKey = (typeof allSettingsKeys)[number]
@@ -217,6 +235,7 @@ export const defaultPreferences: Record<string, string | number | boolean> = {
   [KeySpamWhitelist]: '',
   [KeySpamBlacklist]: '',
   [KeySidebarColumn]: 'off',
+  [KeySidebarElements]: '',
   [KeyStatRatioTargetHandle]: '*',
   [KeyStatRatioEnabled]: 'on',
   [KeyHighlightNonFollowers]: 'on',
@@ -233,4 +252,8 @@ export const defaultPreferences: Record<string, string | number | boolean> = {
   [KeyJumpToComments]: 'on',
   [KeyBookmarkCount]: 'on',
   [KeyMediaDownloadEnabled]: 'on',
+  [KeySearchDefaultLatest]: 'on',
+  [KeySearchFilterBar]: 'on',
+  [KeyComposerMediaGrid]: 'on',
+  [KeyMediaCarouselSwipe]: 'on',
 }

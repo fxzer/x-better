@@ -32,14 +32,17 @@ describe('isTweetDetailPage URL matching', () => {
   it('identifies tweet detail page correctly', () => {
     expect(isTweetDetailPage('/elonmusk/status/1888888888888')).toEqual({
       isDetailPage: true,
+      opHandle: 'elonmusk',
       statusId: '1888888888888',
     })
     expect(isTweetDetailPage('/i/status/999999')).toEqual({
       isDetailPage: true,
+      opHandle: 'i',
       statusId: '999999',
     })
     expect(isTweetDetailPage('/user/status/12345/photo/1')).toEqual({
       isDetailPage: true,
+      opHandle: 'user',
       statusId: '12345',
     })
   })
@@ -176,7 +179,7 @@ describe('spam filter page scoping', () => {
       expect(commentClean.getAttribute('data-xf-spam-score')).toBe('0')
 
       // 评论2（垃圾）：有调试条、有高评分
-      expect(commentSpam.querySelector('#x-focus-spam-debug-bar')).not.toBeNull()
+      expect(commentSpam.querySelector('[data-xf-spam-debug]')).not.toBeNull()
       expect(Number(commentSpam.getAttribute('data-xf-spam-score'))).toBeGreaterThanOrEqual(40)
     })
 
@@ -244,6 +247,47 @@ describe('spam filter page scoping', () => {
 
       // 评论显示调试条
       expect(commentTweet.querySelector('#x-focus-spam-debug-bar')).not.toBeNull()
+    })
+
+    it('exempts OP (main tweet author) replies and comments from spam filtering', async () => {
+      mockSpamConfig({ debug: false, threshold: 30 })
+      document.body.innerHTML = `
+        <article data-testid="tweet" id="main-tweet">
+          <a href="/alice/status/12345">Timestamp</a>
+          <a href="/alice" role="link">@alice</a>
+          <div data-testid="tweetText">这是楼主的主贴内容</div>
+        </article>
+        <!-- 楼主在评论区补充提示词或回复读者（包含营销词也不隐藏） -->
+        <article data-testid="tweet" id="op-reply">
+          <a href="/alice/status/12346">Timestamp</a>
+          <a href="/alice" role="link">@alice</a>
+          <div data-testid="User-Name">Alice</div>
+          <div data-testid="tweetText">点击主页这是楼主本人提供的完整提示词和模型说明</div>
+        </article>
+        <!-- 普通用户的垃圾评论仍被隐藏 -->
+        <article data-testid="tweet" id="other-spam">
+          <a href="/alice/status/12347">Timestamp</a>
+          <a href="/spammer" role="link">@spammer</a>
+          <div data-testid="User-Name">Spam Guy</div>
+          <div data-testid="tweetText">点击主页获取福利</div>
+        </article>
+      `
+
+      await runScan(true)
+
+      const mainTweet = document.querySelector<HTMLElement>('#main-tweet')!
+      const opReply = document.querySelector<HTMLElement>('#op-reply')!
+      const otherSpam = document.querySelector<HTMLElement>('#other-spam')!
+
+      // 主贴保持可见
+      expect(mainTweet.style.display).not.toBe('none')
+      // 楼主（OP）的回复保持可见，绝不隐藏
+      expect(opReply.style.display).not.toBe('none')
+      expect(opReply.getAttribute('data-xf-spam-state')).toBeNull()
+
+      // 第三方垃圾评论被隐藏
+      expect(otherSpam.style.display).toBe('none')
+      expect(otherSpam.getAttribute('data-xf-spam-state')).toBe('hidden')
     })
   })
 })
